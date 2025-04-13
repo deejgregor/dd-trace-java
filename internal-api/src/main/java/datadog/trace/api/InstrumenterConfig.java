@@ -3,6 +3,7 @@ package datadog.trace.api;
 import static datadog.trace.api.ConfigDefaults.DEFAULT_APPSEC_ENABLED;
 import static datadog.trace.api.ConfigDefaults.DEFAULT_CIVISIBILITY_ENABLED;
 import static datadog.trace.api.ConfigDefaults.DEFAULT_CODE_ORIGIN_FOR_SPANS_ENABLED;
+import static datadog.trace.api.ConfigDefaults.DEFAULT_CONNECTION_DETAILS_ENABLED;
 import static datadog.trace.api.ConfigDefaults.DEFAULT_IAST_ENABLED;
 import static datadog.trace.api.ConfigDefaults.DEFAULT_INTEGRATIONS_ENABLED;
 import static datadog.trace.api.ConfigDefaults.DEFAULT_LLM_OBS_ENABLED;
@@ -58,6 +59,7 @@ import static datadog.trace.api.config.TraceInstrumentationConfig.TRACE_CLASSES_
 import static datadog.trace.api.config.TraceInstrumentationConfig.TRACE_CLASSLOADERS_DEFER;
 import static datadog.trace.api.config.TraceInstrumentationConfig.TRACE_CLASSLOADERS_EXCLUDE;
 import static datadog.trace.api.config.TraceInstrumentationConfig.TRACE_CODESOURCES_EXCLUDE;
+import static datadog.trace.api.config.TraceInstrumentationConfig.TRACE_CONNECTION_DETAILS_ENABLED;
 import static datadog.trace.api.config.TraceInstrumentationConfig.TRACE_ENABLED;
 import static datadog.trace.api.config.TraceInstrumentationConfig.TRACE_EXECUTORS;
 import static datadog.trace.api.config.TraceInstrumentationConfig.TRACE_EXECUTORS_ALL;
@@ -126,6 +128,7 @@ public class InstrumenterConfig {
   private final String httpURLConnectionClassName;
   private final String axisTransportClassName;
   private final boolean websocketTracingEnabled;
+  private final boolean connectionDetailsTracingEnabled;
 
   private final boolean directAllocationProfilingEnabled;
 
@@ -278,6 +281,9 @@ public class InstrumenterConfig {
     this.websocketTracingEnabled =
         configProvider.getBoolean(
             TRACE_WEBSOCKET_MESSAGES_ENABLED, DEFAULT_WEBSOCKET_MESSAGES_ENABLED);
+    this.connectionDetailsTracingEnabled =
+        configProvider.getBoolean(
+            TRACE_CONNECTION_DETAILS_ENABLED, DEFAULT_CONNECTION_DETAILS_ENABLED);
   }
 
   public boolean isCodeOriginEnabled() {
@@ -505,6 +511,10 @@ public class InstrumenterConfig {
     return websocketTracingEnabled;
   }
 
+  public boolean isConnectionDetailsTracingEnabled() {
+    return connectionDetailsTracingEnabled;
+  }
+
   /**
    * Check whether asynchronous result types are supported with @Trace annotation.
    *
@@ -637,6 +647,8 @@ public class InstrumenterConfig {
         + additionalJaxRsAnnotations
         + ", websocketTracingEnabled="
         + websocketTracingEnabled
+        + ", connectionDetailsTracingEnabled="
+        + connectionDetailsTracingEnabled
         + '}';
   }
 }

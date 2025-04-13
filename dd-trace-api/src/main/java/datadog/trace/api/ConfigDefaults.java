@@ -274,6 +274,8 @@ public final class ConfigDefaults {
   static final boolean DEFAULT_WEBSOCKET_MESSAGES_SEPARATE_TRACES = true;
   static final boolean DEFAULT_WEBSOCKET_TAG_SESSION_ID = false;
 
+  static final boolean DEFAULT_CONNECTION_DETAILS_ENABLED = false;
+
   static final Set<String> DEFAULT_TRACE_CLOUD_PAYLOAD_TAGGING_SERVICES =
       new HashSet<>(
           Arrays.asList(
