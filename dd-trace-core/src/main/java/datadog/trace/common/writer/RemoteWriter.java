@@ -4,6 +4,7 @@ import static datadog.trace.api.sampling.PrioritySampling.UNSET;
 
 import datadog.trace.core.DDSpan;
 import datadog.trace.core.monitor.HealthMetrics;
+import datadog.trace.relocate.api.RatelimitedLogger;
 import java.util.Collection;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
@@ -37,6 +38,8 @@ public abstract class RemoteWriter implements Writer {
   private volatile boolean closed;
   public final HealthMetrics healthMetrics;
 
+  private final RatelimitedLogger rlLog = new RatelimitedLogger(log, 5, TimeUnit.MINUTES);
+
   protected RemoteWriter(
       final TraceProcessingWorker traceProcessingWorker,
       final PayloadDispatcher dispatcher,
@@ -66,7 +69,7 @@ public abstract class RemoteWriter implements Writer {
     // We can't add events after shutdown otherwise it will never complete shutting down.
     if (!closed) {
       if (trace.isEmpty()) {
-        handleDroppedTrace("Trace was empty", trace, UNSET);
+        handleDroppedTrace("Trace was empty", false, trace, UNSET);
       } else {
         final DDSpan root = trace.get(0);
         final int samplingPriority = root.samplingPriority();
@@ -79,15 +82,15 @@ public abstract class RemoteWriter implements Writer {
             log.debug("Enqueued for single span sampling: {}", trace);
             break;
           case DROPPED_BY_POLICY:
-            handleDroppedTrace("Dropping policy is active", trace, samplingPriority);
+            handleDroppedTrace("Dropping policy is active", false, trace, samplingPriority);
             break;
           case DROPPED_BUFFER_OVERFLOW:
-            handleDroppedTrace("Trace written to overfilled buffer", trace, samplingPriority);
+            handleDroppedTrace("Trace written to overfilled buffer", true, trace, samplingPriority);
             break;
         }
       }
     } else {
-      handleDroppedTrace("Trace written after shutdown.", trace, UNSET);
+      handleDroppedTrace("Trace written after shutdown.", false, trace, UNSET);
     }
     if (alwaysFlush) {
       flush();
@@ -95,8 +98,17 @@ public abstract class RemoteWriter implements Writer {
   }
 
   private void handleDroppedTrace(
-      final String reason, final List<DDSpan> trace, final int samplingPriority) {
-    log.debug("{}. Counted but dropping trace: {}", reason, trace);
+      final String reason, final boolean isWarn, final List<DDSpan> trace, final int samplingPriority) {
+    if (isWarn) {
+      if (log.isDebugEnabled()) {
+        // When in debug, still log the traces and don't rate limit.
+        log.warn("{}. Counted but dropping trace: {}", reason, trace);
+      } else {
+        rlLog.warn("{}. Counted but dropping trace: {}", reason);
+      }
+    } else {
+      log.debug("{}. Counted but dropping trace: {}", reason, trace);
+    }
     healthMetrics.onFailedPublish(
         trace.isEmpty() ? 0 : trace.get(0).samplingPriority(), trace.size());
     incrementDropCounts(trace.size());
