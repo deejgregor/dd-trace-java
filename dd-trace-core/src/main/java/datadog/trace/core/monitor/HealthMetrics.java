@@ -73,6 +73,8 @@ public abstract class HealthMetrics implements AutoCloseable {
 
   public void onLongRunningUpdate(final int dropped, final int write, final int expired) {}
 
+  public void onPendingUpdate(final int dropped, final int write, final int expired) {}
+
   /**
    * Report that a trace has been used to compute client stats.
    *

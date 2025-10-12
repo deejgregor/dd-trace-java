@@ -622,6 +622,7 @@ import static datadog.trace.api.config.TracerConfig.TRACE_HTTP_SERVER_ERROR_STAT
 import static datadog.trace.api.config.TracerConfig.TRACE_HTTP_SERVER_PATH_RESOURCE_NAME_MAPPING;
 import static datadog.trace.api.config.TracerConfig.TRACE_INFERRED_PROXY_SERVICES_ENABLED;
 import static datadog.trace.api.config.TracerConfig.TRACE_KEEP_LATENCY_THRESHOLD_MS;
+import static datadog.trace.api.config.TracerConfig.TELEMETRY_JMX_ENABLED;
 import static datadog.trace.api.config.TracerConfig.TRACE_LONG_RUNNING_ENABLED;
 import static datadog.trace.api.config.TracerConfig.TRACE_LONG_RUNNING_FLUSH_INTERVAL;
 import static datadog.trace.api.config.TracerConfig.TRACE_LONG_RUNNING_INITIAL_FLUSH_INTERVAL;
@@ -1205,6 +1206,7 @@ public class Config {
   private final boolean isTelemetryDependencyServiceEnabled;
   private final boolean telemetryMetricsEnabled;
   private final boolean isTelemetryLogCollectionEnabled;
+  private final boolean isTelemetryJmxEnabled;
   private final int telemetryDependencyResolutionQueueSize;
 
   private final boolean azureAppServices;
@@ -2063,6 +2065,8 @@ public class Config {
         instrumenterConfig.isTelemetryEnabled()
             && configProvider.getBoolean(
                 TELEMETRY_LOG_COLLECTION_ENABLED, DEFAULT_TELEMETRY_LOG_COLLECTION_ENABLED);
+
+    isTelemetryJmxEnabled = configProvider.getBoolean(TELEMETRY_JMX_ENABLED, false);
 
     isTelemetryDependencyServiceEnabled =
         configProvider.getBoolean(
@@ -2958,6 +2962,14 @@ public class Config {
     return longRunningTraceFlushInterval;
   }
 
+  public long getPendingTraceInitialFlushInterval() {
+    return longRunningTraceInitialFlushInterval;
+  }
+
+  public long getPendingTraceFlushInterval() {
+    return longRunningTraceFlushInterval;
+  }
+
   public float getTraceFlushIntervalSeconds() {
     return traceFlushIntervalSeconds;
   }
@@ -3576,6 +3588,10 @@ public class Config {
 
   public boolean isTelemetryLogCollectionEnabled() {
     return isTelemetryLogCollectionEnabled;
+  }
+
+  public boolean isTelemetryJmxEnabled() {
+    return isTelemetryJmxEnabled;
   }
 
   public int getTelemetryDependencyResolutionQueueSize() {

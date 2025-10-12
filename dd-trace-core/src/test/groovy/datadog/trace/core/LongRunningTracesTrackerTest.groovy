@@ -114,7 +114,7 @@ class LongRunningTracesTrackerTest extends DDSpecification {
     trace.longRunningTrackedState == LongRunningTracesTracker.EXPIRED
   }
 
-  def "agent disabled feature"() {
+  def "trace remains tracked even when agent feature discovery not available"() {
     given:
     def trace = newTraceToTrack()
     tracker.add(trace)
@@ -123,8 +123,10 @@ class LongRunningTracesTrackerTest extends DDSpecification {
     tracker.flushAndCompact(tracker.flushPeriodMilli - 1000)
 
     then:
-    1 * features.supportsLongRunning() >> false
-    tracker.traceArray.size() == 0
+    // Trace should still be tracked (not removed) even if features.supportsLongRunning() returns false
+    // This is because local config already enabled long-running traces
+    0 * features.supportsLongRunning()
+    tracker.traceArray.size() == 1
   }
 
   def flushAt(long timeMilli) {
@@ -191,5 +193,79 @@ class LongRunningTracesTrackerTest extends DDSpecification {
     PrioritySampling.USER_DROP | 0 | LongRunningTracesTracker.NOT_TRACKED
     PrioritySampling.USER_KEEP | 1 | LongRunningTracesTracker.WRITE_RUNNING_SPANS
     PrioritySampling.SAMPLER_KEEP | 1 | LongRunningTracesTracker.WRITE_RUNNING_SPANS
+  }
+
+  def "getTracesAsJson with no traces"() {
+    when:
+    def json = tracker.getTracesAsJson()
+
+    then:
+    json == ""
+  }
+
+  def "getTracesAsJson with traces"() {
+    given:
+    def trace = newTraceToTrack()
+    tracker.add(trace)
+
+    when:
+    def json = tracker.getTracesAsJson()
+
+    then:
+    json != null
+    !json.isEmpty()
+    json.contains('"service"')
+    json.contains('"name"')
+  }
+
+  def "getTrackedTraceCount"() {
+    given:
+    tracker.add(newTraceToTrack())
+    tracker.add(newTraceToTrack())
+
+    when:
+    def count = tracker.getTrackedTraceCount()
+
+    then:
+    count == 2
+  }
+
+  def "getDroppedTraceCount"() {
+    given:
+    (1..maxTrackedTraces + 2).each {
+      tracker.add(newTraceToTrack())
+    }
+
+    when:
+    def count = tracker.getDroppedTraceCount()
+
+    then:
+    count == 2
+  }
+
+  def "getWrittenTraceCount"() {
+    given:
+    def trace = newTraceToTrack()
+    tracker.add(trace)
+    flushAt(tracker.initialFlushPeriodMilli + 1000)
+
+    when:
+    def count = tracker.getWrittenTraceCount()
+
+    then:
+    count == 1
+  }
+
+  def "getExpiredTraceCount"() {
+    given:
+    def trace = newTraceToTrack()
+    tracker.add(trace)
+    flushAt(1 + tracker.maxTrackedDurationMilli)
+
+    when:
+    def count = tracker.getExpiredTraceCount()
+
+    then:
+    count == 1
   }
 }

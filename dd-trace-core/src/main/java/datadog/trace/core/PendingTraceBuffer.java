@@ -5,6 +5,7 @@ import static datadog.trace.util.AgentThreadFactory.THREAD_JOIN_TIMOUT_MS;
 import static datadog.trace.util.AgentThreadFactory.newAgentThread;
 import static java.util.Comparator.comparingLong;
 
+import com.squareup.moshi.JsonWriter;
 import datadog.communication.ddagent.SharedCommunicationObjects;
 import datadog.trace.api.Config;
 import datadog.trace.api.flare.TracerFlare;
@@ -12,6 +13,8 @@ import datadog.trace.api.time.TimeSource;
 import datadog.trace.common.writer.TraceDumpJsonExporter;
 import datadog.trace.core.monitor.HealthMetrics;
 import java.io.IOException;
+import okio.Buffer;
+import java.lang.management.ManagementFactory;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -19,6 +22,12 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Predicate;
 import java.util.zip.ZipOutputStream;
+import javax.management.InstanceAlreadyExistsException;
+import javax.management.MBeanRegistrationException;
+import javax.management.MBeanServer;
+import javax.management.MalformedObjectNameException;
+import javax.management.NotCompliantMBeanException;
+import javax.management.ObjectName;
 import org.jctools.queues.MessagePassingQueue;
 import org.jctools.queues.MpscBlockingConsumerArrayQueue;
 import org.slf4j.Logger;
@@ -30,6 +39,10 @@ public abstract class PendingTraceBuffer implements AutoCloseable {
 
   public boolean longRunningSpansEnabled() {
     return false;
+  }
+
+  public LongRunningTracesTracker getLongRunningTracesTracker() {
+    return null;
   }
 
   public interface Element {
@@ -54,6 +67,8 @@ public abstract class PendingTraceBuffer implements AutoCloseable {
   }
 
   private static class DelayingPendingTraceBuffer extends PendingTraceBuffer {
+    private static final Logger LOGGER =
+        LoggerFactory.getLogger(DelayingPendingTraceBuffer.class);
     private static final long FORCE_SEND_DELAY_MS = TimeUnit.SECONDS.toMillis(5);
     private static final long SEND_DELAY_NS = TimeUnit.MILLISECONDS.toNanos(500);
     private static final long SLEEP_TIME_MS = 100;
@@ -70,6 +85,25 @@ public abstract class PendingTraceBuffer implements AutoCloseable {
     private final AtomicInteger dumpCounter = new AtomicInteger(0);
 
     private final LongRunningTracesTracker runningTracesTracker;
+    private final boolean jmxEnabled;
+    private ObjectName pendingTracesMBeanName;
+
+    private void dumpTraces() {
+      if (worker.isAlive()) {
+        int count = dumpCounter.get();
+        int loop = 1;
+        boolean signaled = queue.offer(DUMP_ELEMENT);
+        while (!closed && !signaled) {
+          yieldOrSleep(loop++);
+          signaled = queue.offer(DUMP_ELEMENT);
+        }
+        int newCount = dumpCounter.get();
+        while (!closed && count >= newCount) {
+          yieldOrSleep(loop++);
+          newCount = dumpCounter.get();
+        }
+      }
+    }
 
     public boolean longRunningSpansEnabled() {
       return runningTracesTracker != null;
@@ -93,6 +127,9 @@ public abstract class PendingTraceBuffer implements AutoCloseable {
     @Override
     public void start() {
       TracerFlare.addReporter(new TracerDump(this));
+      if (jmxEnabled) {
+        registerMBean();
+      }
       worker.start();
     }
 
@@ -104,6 +141,12 @@ public abstract class PendingTraceBuffer implements AutoCloseable {
       try {
         worker.join(THREAD_JOIN_TIMOUT_MS);
       } catch (InterruptedException ignored) {
+      }
+      if (jmxEnabled) {
+        unregisterMBean();
+      }
+      if (runningTracesTracker != null) {
+        runningTracesTracker.close();
       }
     }
 
@@ -134,6 +177,47 @@ public abstract class PendingTraceBuffer implements AutoCloseable {
           newCount = flushCounter.get();
         }
       }
+    }
+
+    private void registerMBean() {
+      MBeanServer mbs = ManagementFactory.getPlatformMBeanServer();
+
+      try {
+        pendingTracesMBeanName = new ObjectName("datadog.trace.core:type=PendingTraces");
+        PendingTracesManager pendingManager = new PendingTracesManager(this);
+        mbs.registerMBean(pendingManager, pendingTracesMBeanName);
+        LOGGER.info("Registered PendingTraces MBean at {}", pendingTracesMBeanName);
+      } catch (MalformedObjectNameException
+          | InstanceAlreadyExistsException
+          | MBeanRegistrationException
+          | NotCompliantMBeanException e) {
+        LOGGER.warn("Failed to register PendingTraces MBean", e);
+        pendingTracesMBeanName = null;
+      }
+    }
+
+    private void unregisterMBean() {
+      if (pendingTracesMBeanName != null) {
+        MBeanServer mbs = ManagementFactory.getPlatformMBeanServer();
+        try {
+          mbs.unregisterMBean(pendingTracesMBeanName);
+          LOGGER.debug("Unregistered PendingTraces MBean");
+        } catch (Exception e) {
+          LOGGER.debug("Failed to unregister PendingTraces MBean", e);
+        }
+      }
+    }
+
+    private String getDumpJson() {
+        try (TraceDumpJsonExporter writer = new TraceDumpJsonExporter()) {
+            for (Element e : DumpDrain.DUMP_DRAIN.collectTraces()) {
+                if (e instanceof PendingTrace) {
+                    PendingTrace trace = (PendingTrace) e;
+                    writer.write(trace.getSpans());
+                }
+            }
+            return writer.getDumpJson();
+        }
     }
 
     private static final class WriteDrain implements MessagePassingQueue.Consumer<Element> {
@@ -284,6 +368,23 @@ public abstract class PendingTraceBuffer implements AutoCloseable {
       }
     }
 
+
+    @Override
+    public String getTracesAsJson() throws IOException {
+      dumpTraces();
+      String json = getDumpJson();
+      if (json.isEmpty()) {
+        return "[]";
+      } else {
+        return json;
+      }
+    }
+
+    @Override
+    public int getPendingTraceCount() {
+      return queue.size();
+    }
+
     public DelayingPendingTraceBuffer(
         int bufferSize,
         TimeSource timeSource,
@@ -299,6 +400,7 @@ public abstract class PendingTraceBuffer implements AutoCloseable {
               ? new LongRunningTracesTracker(
                   config, bufferSize, sharedCommunicationObjects, healthMetrics)
               : null;
+      this.jmxEnabled = config.isTelemetryJmxEnabled();
     }
   }
 
@@ -318,6 +420,16 @@ public abstract class PendingTraceBuffer implements AutoCloseable {
     public void enqueue(Element pendingTrace) {
       log.debug(
           "PendingTrace enqueued but won't be reported. Root span: {}", pendingTrace.getRootSpan());
+    }
+
+    @Override
+    public String getTracesAsJson() {
+      return "[]";
+    }
+
+    @Override
+    public int getPendingTraceCount() {
+      return 0;
     }
   }
 
@@ -343,6 +455,21 @@ public abstract class PendingTraceBuffer implements AutoCloseable {
 
   public abstract void enqueue(Element pendingTrace);
 
+  /**
+   * Returns detailed information about all currently buffered pending traces as JSON.
+   *
+   * @return JSON string containing trace details
+   * @throws IOException if an error occurs while generating JSON
+   */
+  public abstract String getTracesAsJson() throws IOException;
+
+  /**
+   * Returns the number of currently buffered pending traces.
+   *
+   * @return the count of pending traces
+   */
+  public abstract int getPendingTraceCount();
+
   private static class TracerDump implements TracerFlare.Reporter {
     private final DelayingPendingTraceBuffer buffer;
 
@@ -352,32 +479,16 @@ public abstract class PendingTraceBuffer implements AutoCloseable {
 
     @Override
     public void prepareForFlare() {
-      if (buffer.worker.isAlive()) {
-        int count = buffer.dumpCounter.get();
-        int loop = 1;
-        boolean signaled = buffer.queue.offer(DelayingPendingTraceBuffer.DUMP_ELEMENT);
-        while (!buffer.closed && !signaled) {
-          buffer.yieldOrSleep(loop++);
-          signaled = buffer.queue.offer(DelayingPendingTraceBuffer.DUMP_ELEMENT);
-        }
-        int newCount = buffer.dumpCounter.get();
-        while (!buffer.closed && count >= newCount) {
-          buffer.yieldOrSleep(loop++);
-          newCount = buffer.dumpCounter.get();
-        }
-      }
+        buffer.dumpTraces();
     }
 
     @Override
     public void addReportToFlare(ZipOutputStream zip) throws IOException {
-      TraceDumpJsonExporter writer = new TraceDumpJsonExporter(zip);
-      for (Element e : DelayingPendingTraceBuffer.DumpDrain.DUMP_DRAIN.collectTraces()) {
-        if (e instanceof PendingTrace) {
-          PendingTrace trace = (PendingTrace) e;
-          writer.write(trace.getSpans());
-        }
+      try {
+        TracerFlare.addText(zip, "pending_traces.txt", buffer.getDumpJson());
+      } catch (IOException e) {
+        // do nothing
       }
-      writer.flush();
     }
   }
 }
