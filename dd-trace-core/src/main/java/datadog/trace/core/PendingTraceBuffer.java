@@ -54,7 +54,7 @@ public abstract class PendingTraceBuffer implements AutoCloseable {
 
   private static class DelayingPendingTraceBuffer extends PendingTraceBuffer {
     private static final long FORCE_SEND_DELAY_MS = TimeUnit.SECONDS.toMillis(5);
-    private static final long SEND_DELAY_NS = TimeUnit.MILLISECONDS.toNanos(5000);
+    private static final long SEND_DELAY_NS = TimeUnit.MILLISECONDS.toNanos(500);
     private static final long SLEEP_TIME_MS = 100;
     private static final CommandElement FLUSH_ELEMENT = new CommandElement();
     private static final CommandElement DUMP_ELEMENT = new CommandElement();
@@ -238,6 +238,7 @@ public abstract class PendingTraceBuffer implements AutoCloseable {
             }
 
             if (pendingTrace == FLUSH_ELEMENT) {
+              log.debug("flushing pending trace queue: {}", pendingTrace);
               // Since this is an MPSC queue, the drain needs to be called on the consumer thread
               queue.drain(WriteDrain.WRITE_DRAIN);
               flushCounter.incrementAndGet();
@@ -245,6 +246,7 @@ public abstract class PendingTraceBuffer implements AutoCloseable {
             }
 
             if (pendingTrace == DUMP_ELEMENT) {
+              log.debug("dumping pending trace queue: {}", pendingTrace);
               queue.fill(
                   DumpDrain.DUMP_DRAIN,
                   queue.drain(DumpDrain.DUMP_DRAIN, DumpDrain.MAX_DUMPED_TRACES));
@@ -265,19 +267,19 @@ public abstract class PendingTraceBuffer implements AutoCloseable {
             long finishTimestampMillis = TimeUnit.NANOSECONDS.toMillis(oldestFinishedTime);
             if (finishTimestampMillis <= timeSource.getCurrentTimeMillis() - FORCE_SEND_DELAY_MS) {
               // Root span is getting old. Send the trace to avoid being discarded by agent.
-              log.debug("pending trace is been flushed due to root span(?) oldest finish time {} getting old > {}: {}", finishTimestampMillis, FORCE_SEND_DELAY_MS, pendingTrace);
+              log.debug("pending trace is been flushed due to root span(?) oldest finish time {} getting old > {}: {}: {}", finishTimestampMillis, FORCE_SEND_DELAY_MS, pendingTrace, pendingTrace.getRootSpan());
               pendingTrace.write();
               continue;
             }
 
             if (pendingTrace.lastReferencedNanosAgo(SEND_DELAY_NS)) {
               // Trace has been unmodified long enough, go ahead and write whatever is finished.
-              log.debug("pending trace is been flushed due to last reference > {}ns ago: {}", SEND_DELAY_NS, pendingTrace);
+              log.debug("pending trace is been flushed due to last reference > {}ns ago: {}: {}", SEND_DELAY_NS, pendingTrace, pendingTrace.getRootSpan());
               pendingTrace.write();
             } else {
               // Trace is too new. Requeue it and sleep to avoid a hot loop.
               enqueue(pendingTrace);
-              log.debug("re-enqueuing pending trace and taking a snooze for {}ms: {}", SLEEP_TIME_MS, pendingTrace);
+              log.debug("re-enqueuing pending trace and taking a snooze for {}ms: {}: {}", SLEEP_TIME_MS, pendingTrace, pendingTrace.getRootSpan());
               Thread.sleep(SLEEP_TIME_MS);
             }
           }
