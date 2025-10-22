@@ -54,10 +54,12 @@ public abstract class PendingTraceBuffer implements AutoCloseable {
 
   private static class DelayingPendingTraceBuffer extends PendingTraceBuffer {
     private static final long FORCE_SEND_DELAY_MS = TimeUnit.SECONDS.toMillis(5);
-    private static final long SEND_DELAY_NS = TimeUnit.MILLISECONDS.toNanos(500);
+    private static final long SEND_DELAY_NS = TimeUnit.MILLISECONDS.toNanos(5000);
     private static final long SLEEP_TIME_MS = 100;
     private static final CommandElement FLUSH_ELEMENT = new CommandElement();
     private static final CommandElement DUMP_ELEMENT = new CommandElement();
+
+    private static final Logger log = LoggerFactory.getLogger(DelayingPendingTraceBuffer.class);
 
     private final MpscBlockingConsumerArrayQueue<Element> queue;
     private final Thread worker;
@@ -81,8 +83,10 @@ public abstract class PendingTraceBuffer implements AutoCloseable {
           pendingTrace.setEnqueued(false);
 
           if (!pendingTrace.writeOnBufferFull()) {
+            log.debug("pending trace is being dropped due to queue full: {}", pendingTrace);
             return;
           }
+          log.debug("pending trace is being written due to queue full: {}", pendingTrace);
           pendingTrace.write();
         }
       }
@@ -145,6 +149,7 @@ public abstract class PendingTraceBuffer implements AutoCloseable {
 
     private static final class DumpDrain
         implements MessagePassingQueue.Consumer<Element>, MessagePassingQueue.Supplier<Element> {
+      private static final Logger log = LoggerFactory.getLogger(WriteDrain.class);
       private static final DumpDrain DUMP_DRAIN = new DumpDrain();
       private static final int MAX_DUMPED_TRACES = 50;
 
@@ -166,6 +171,10 @@ public abstract class PendingTraceBuffer implements AutoCloseable {
         if (index < data.size()) {
           return data.get(index++);
         }
+        log.warn(
+            "Index {} is out of bounds for data size {} in DumpDrain.get, returning null--the pending trace queue will likely break.",
+            index,
+            data.size());
         return null; // Should never reach here or else queue may break according to
         // MessagePassingQueue docs
       }
@@ -256,16 +265,19 @@ public abstract class PendingTraceBuffer implements AutoCloseable {
             long finishTimestampMillis = TimeUnit.NANOSECONDS.toMillis(oldestFinishedTime);
             if (finishTimestampMillis <= timeSource.getCurrentTimeMillis() - FORCE_SEND_DELAY_MS) {
               // Root span is getting old. Send the trace to avoid being discarded by agent.
+              log.debug("pending trace is been flushed due to root span(?) oldest finish time {} getting old > {}: {}", finishTimestampMillis, FORCE_SEND_DELAY_MS, pendingTrace);
               pendingTrace.write();
               continue;
             }
 
             if (pendingTrace.lastReferencedNanosAgo(SEND_DELAY_NS)) {
               // Trace has been unmodified long enough, go ahead and write whatever is finished.
+              log.debug("pending trace is been flushed due to last reference > {}ns ago: {}", SEND_DELAY_NS, pendingTrace);
               pendingTrace.write();
             } else {
               // Trace is too new. Requeue it and sleep to avoid a hot loop.
               enqueue(pendingTrace);
+              log.debug("re-enqueuing pending trace and taking a snooze for {}ms: {}", SLEEP_TIME_MS, pendingTrace);
               Thread.sleep(SLEEP_TIME_MS);
             }
           }
