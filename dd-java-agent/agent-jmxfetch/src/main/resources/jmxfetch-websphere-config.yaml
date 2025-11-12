@@ -33,3 +33,146 @@ instances:
               alias: websphere.thread_pool.active.low_water_mark
             stats.ActiveCount.current:
               alias: websphere.thread_pool.active.current
+
+      # JDBC Connection Pool Statistics
+      # These metrics come from WebSphere PMI Stats objects with subCollections
+      # Each JDBC provider can have multiple connection pools (subCollections)
+      - include:
+          domain: WebSphere
+          type: JDBCProvider
+          attribute:
+            # Pool Size Metrics - Current, high/low water marks, and bounds
+            stats.PoolSize.current:
+              alias: websphere.jdbc_provider.pool_size.current
+              metric_type: gauge
+            stats.PoolSize.upperBound:
+              alias: websphere.jdbc_provider.pool_size.upper_bound
+              metric_type: gauge
+            stats.PoolSize.lowerBound:
+              alias: websphere.jdbc_provider.pool_size.lower_bound
+              metric_type: gauge
+            stats.PoolSize.highWaterMark:
+              alias: websphere.jdbc_provider.pool_size.high_water_mark
+              metric_type: gauge
+            stats.PoolSize.lowWaterMark:
+              alias: websphere.jdbc_provider.pool_size.low_water_mark
+              metric_type: gauge
+
+            # Free Pool Size Metrics - Available connections
+            stats.FreePoolSize.current:
+              alias: websphere.jdbc_provider.free_pool_size.current
+              metric_type: gauge
+            stats.FreePoolSize.upperBound:
+              alias: websphere.jdbc_provider.free_pool_size.upper_bound
+              metric_type: gauge
+            stats.FreePoolSize.lowerBound:
+              alias: websphere.jdbc_provider.free_pool_size.lower_bound
+              metric_type: gauge
+            stats.FreePoolSize.highWaterMark:
+              alias: websphere.jdbc_provider.free_pool_size.high_water_mark
+              metric_type: gauge
+            stats.FreePoolSize.lowWaterMark:
+              alias: websphere.jdbc_provider.free_pool_size.low_water_mark
+              metric_type: gauge
+
+            # Waiting Thread Count - Threads waiting for connections
+            stats.WaitingThreadCount.current:
+              alias: websphere.jdbc_provider.waiting_threads.current
+              metric_type: gauge
+            stats.WaitingThreadCount.highWaterMark:
+              alias: websphere.jdbc_provider.waiting_threads.high_water_mark
+              metric_type: gauge
+            stats.WaitingThreadCount.lowWaterMark:
+              alias: websphere.jdbc_provider.waiting_threads.low_water_mark
+              metric_type: gauge
+
+            # Percent Used - Pool utilization percentage
+            stats.PercentUsed.current:
+              alias: websphere.jdbc_provider.percent_used.current
+              metric_type: gauge
+            stats.PercentUsed.highWaterMark:
+              alias: websphere.jdbc_provider.percent_used.high_water_mark
+              metric_type: gauge
+            stats.PercentUsed.lowWaterMark:
+              alias: websphere.jdbc_provider.percent_used.low_water_mark
+              metric_type: gauge
+
+            # Connection Lifecycle Counters
+            stats.CreateCount.count:
+              alias: websphere.jdbc_provider.connections.created
+              metric_type: monotonic_count
+            stats.CloseCount.count:
+              alias: websphere.jdbc_provider.connections.closed
+              metric_type: monotonic_count
+
+            # Wait Time Statistics - Time threads wait for connections
+            stats.WaitTime.count:
+              alias: websphere.jdbc_provider.wait_time.count
+              metric_type: monotonic_count
+            stats.WaitTime.totalTime:
+              alias: websphere.jdbc_provider.wait_time.total_ms
+              metric_type: monotonic_count
+            stats.WaitTime.minTime:
+              alias: websphere.jdbc_provider.wait_time.min_ms
+              metric_type: gauge
+            stats.WaitTime.maxTime:
+              alias: websphere.jdbc_provider.wait_time.max_ms
+              metric_type: gauge
+
+            # Use Time Statistics - How long connections are used
+            stats.UseTime.count:
+              alias: websphere.jdbc_provider.use_time.count
+              metric_type: monotonic_count
+            stats.UseTime.totalTime:
+              alias: websphere.jdbc_provider.use_time.total_ms
+              metric_type: monotonic_count
+            stats.UseTime.minTime:
+              alias: websphere.jdbc_provider.use_time.min_ms
+              metric_type: gauge
+            stats.UseTime.maxTime:
+              alias: websphere.jdbc_provider.use_time.max_ms
+              metric_type: gauge
+
+      # Session Manager Statistics (if using sessions)
+      - include:
+          domain: WebSphere
+          type: SessionManager
+          attribute:
+            # Session counts
+            stats.CreateCount.count:
+              alias: websphere.session_manager.sessions.created
+              metric_type: monotonic_count
+              tags:
+                app: $name
+            stats.InvalidatedCount.count:
+              alias: websphere.session_manager.sessions.invalidated
+              metric_type: monotonic_count
+              tags:
+                app: $name
+            stats.ActiveCount.count:
+              alias: websphere.session_manager.sessions.active
+              metric_type: gauge
+              tags:
+                app: $name
+
+            # Session lifetime
+            stats.LifeTime.count:
+              alias: websphere.session_manager.lifetime.count
+              metric_type: monotonic_count
+              tags:
+                app: $name
+            stats.LifeTime.totalTime:
+              alias: websphere.session_manager.lifetime.total_ms
+              metric_type: monotonic_count
+              tags:
+                app: $name
+            stats.LifeTime.minTime:
+              alias: websphere.session_manager.lifetime.min_ms
+              metric_type: gauge
+              tags:
+                app: $name
+            stats.LifeTime.maxTime:
+              alias: websphere.session_manager.lifetime.max_ms
+              metric_type: gauge
+              tags:
+                app: $name
