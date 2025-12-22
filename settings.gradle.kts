@@ -301,6 +301,7 @@ include(
   ":dd-java-agent:instrumentation:azure-functions-1.2.2",
   ":dd-java-agent:instrumentation:caffeine-1.0",
   ":dd-java-agent:instrumentation:cdi-1.2",
+  ":dd-java-agent:instrumentation:cics",
   ":dd-java-agent:instrumentation:classloading:jboss-testing",
   ":dd-java-agent:instrumentation:classloading:jsr14-testing",
   ":dd-java-agent:instrumentation:classloading:osgi-testing",
